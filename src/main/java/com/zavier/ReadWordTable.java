@@ -11,7 +11,6 @@ import org.apache.poi.xwpf.usermodel.XWPFTable;
 import org.apache.poi.xwpf.usermodel.XWPFTableCell;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTDecimalNumber;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTTcPr;
-import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTVMerge;
 
 /**
  * 读取word中的表格，包括复杂表格（合并的单元格）
@@ -22,11 +21,6 @@ public class ReadWordTable {
      * 保存需要被忽略的单元格
      */
     private List<String> omitCellsList = new ArrayList<>();
-
-    /**
-     * 表格行数
-     */
-    private int tableRows = 0;
 
     /**
      * 生成忽略的单元格列表中的格式
@@ -66,26 +60,82 @@ public class ReadWordTable {
      * @param list
      */
     public void getRowspan(XWPFTable table, int row, int col, List<Boolean> list) {
-        if (++row >= tableRows) {
+
+        XWPFTableCell cell = table.getRow(row).getCell(col);
+        if (!isContinueRow(cell) && !isRestartRow(cell)) { // 正常单元格
             return;
         }
-        XWPFTableCell tableCell = table.getRow(row).getCell(col);
-
-        // 如果此列已经被合并，则得到null
-        if (tableCell == null) {
+        if (row + 1 >= table.getNumberOfRows()) { // 行数超界
             return;
         }
+        int standWidth = getCellWidth(table, row, col);
+        int standLeftWidth = getLeftWidth(table, row, col);
 
-        CTTcPr tcPr = tableCell.getCTTc().getTcPr();
-        CTVMerge vMerge = tcPr.getVMerge();
-        if (vMerge != null) { // 下一行可能是起始合并行或者中间合并行
-            if (vMerge.getVal() == null) { // 是中间行，rowspan加1
-                list.add(true);
-                getRowspan(table, row, col, list);
+        row = row + 1;
+        int colsNum = table.getRow(row).getTableCells().size();
+        for (int i = 0; i < colsNum; i++) {
+            XWPFTableCell testTable = table.getRow(row).getCell(i);
+            if (isContinueRow(testTable)) { // 为合并单元格的中间行
+                if (getCellWidth(table, row, i) == standWidth
+                        && getLeftWidth(table, row, i) == standLeftWidth) { // 是目标单元格(即是上一行对应单元格的下一级单元格)
+                    list.add(true);
+                    addOmitCell(row, i);
+                    getRowspan(table, row, col, list);
+                    break;
+                }
             }
         }
     }
 
+    /**
+     * 判断是否是合并行的起始行单元格
+     * 
+     * @param tableCell
+     * @return
+     */
+    public boolean isRestartRow(XWPFTableCell tableCell) {
+        CTTcPr tcPr = tableCell.getCTTc().getTcPr();
+        if (tcPr.getVMerge() == null) {
+            return false;
+        }
+        if (tcPr.getVMerge().getVal() == null) {
+            return false;
+        }
+        if (tcPr.getVMerge().getVal().toString().equalsIgnoreCase("restart")) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * 判断是否是合并行的中间行单元格
+     * 
+     * @param tableCell
+     * @return
+     */
+    public boolean isContinueRow(XWPFTableCell tableCell) {
+        CTTcPr tcPr = tableCell.getCTTc().getTcPr();
+        if (tcPr.getVMerge() == null) {
+            return false;
+        }
+        if (tcPr.getVMerge().getVal() == null) {
+            return true;
+        }
+        return false;
+    }
+
+    public int getLeftWidth(XWPFTable table, int row, int col) {
+        int leftWidth = 0;
+        for (int i = 0; i < col; i++) {
+            leftWidth += getCellWidth(table, row, i);
+        }
+        return leftWidth;
+    }
+
+    public int getCellWidth(XWPFTable table, int row, int col) {
+        BigInteger width = table.getRow(row).getCell(col).getCTTc().getTcPr().getTcW().getW();
+        return width.intValue();
+    }
 
     /**
      * 添加忽略的单元格(poi区分不出合并的行，故需要手动区分)
@@ -94,11 +144,9 @@ public class ReadWordTable {
      * @param col
      * @param rowspan
      */
-    public void addOmitCell(int row, int col, int rowspan) {
-        for (int i = row + 1; i < row + rowspan; i++) {
-            String omitCellStr = generateOmitCellStr(i, col);
-            omitCellsList.add(omitCellStr);
-        }
+    public void addOmitCell(int row, int col) {
+        String omitCellStr = generateOmitCellStr(row, col);
+        omitCellsList.add(omitCellStr);
     }
 
     public boolean isOmitCell(int row, int col) {
@@ -109,7 +157,6 @@ public class ReadWordTable {
     public String readTable(XWPFTable table) throws IOException {
         // 表格行数
         int tableRowsSize = table.getRows().size();
-        tableRows = tableRowsSize;
         StringBuilder tableToHtmlStr = new StringBuilder("<table>");
 
         for (int i = 0; i < tableRowsSize; i++) {
@@ -133,7 +180,6 @@ public class ReadWordTable {
                 int rowspan = list.size() + 1;
                 // System.out.println("第" + i + "行" + "第" + j + "列: " + rowspan);
                 if (rowspan > 1) { // 合并的行
-                    addOmitCell(i, j, rowspan);
                     tableToHtmlStr.append(" rowspan='" + rowspan + "'>");
                 } else {
                     tableToHtmlStr.append(">");
@@ -152,14 +198,14 @@ public class ReadWordTable {
     }
 
     public void clearTableInfo() {
-        omitCellsList = new ArrayList<>();
-        tableRows = 0;
+        System.out.println(omitCellsList);
+        omitCellsList.clear();
     }
 
     public static void main(String[] args) {
         ReadWordTable readWordTable = new ReadWordTable();
 
-        try (FileInputStream fileInputStream = new FileInputStream("普通表格.docx");
+        try (FileInputStream fileInputStream = new FileInputStream("表格.docx");
                 XWPFDocument document = new XWPFDocument(fileInputStream);) {
             List<XWPFTable> tables = document.getTables();
             for (XWPFTable table : tables) {
