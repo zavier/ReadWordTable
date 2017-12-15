@@ -18,7 +18,7 @@ import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTTcPr;
 public class ReadWordTable {
 
     /**
-     * 保存需要被忽略的单元格
+     * 保存生成HTML时需要被忽略的单元格
      */
     private List<String> omitCellsList = new ArrayList<>();
 
@@ -52,29 +52,38 @@ public class ReadWordTable {
     }
 
     /**
-     * 获取当前单元格的rowspan（行合并）的行数-1（因为没有包括其本身）
+     * 获取当前单元格的rowspan（行合并）的行数
      * 
      * @param table 表格
      * @param row 行值
      * @param col 列值
-     * @param list list中值的数量表示行合并单元格的数量-1
+     * @return
      */
-    public void getRowspan(XWPFTable table, int row, int col, List<Boolean> list) {
+    public int getRowspan(XWPFTable table, int row, int col) {
 
         XWPFTableCell cell = table.getRow(row).getCell(col);
         // 正常独立单元格
         if (!isContinueRow(cell) && !isRestartRow(cell)) {
-            return;
+            return 1;
         }
+        // 当前单元格的宽度
+        int cellWidth = getCellWidth(table, row, col);
+        // 当前单元格距离左侧边框的距离
+        int leftWidth = getLeftWidth(table, row, col);
+
+        // 用户保存当前单元格行合并的单元格数-1（因为不包含自身）
+        List<Boolean> list = new ArrayList<>();
+        getRowspan(table, row, cellWidth, leftWidth, list);
+
+        return list.size() + 1;
+    }
+
+    private void getRowspan(XWPFTable table, int row, int cellWidth, int leftWidth,
+            List<Boolean> list) {
         // 已达到最后一行
         if (row + 1 >= table.getNumberOfRows()) {
             return;
         }
-        // 当前单元格的宽度
-        int standWidth = getCellWidth(table, row, col);
-        // 当前单元格距离左侧边框的距离
-        int standLeftWidth = getLeftWidth(table, row, col);
-
         row = row + 1;
         int colsNum = table.getRow(row).getTableCells().size();
         // 因为列合并单元格可能导致行合并的单元格并不在同一列，所以从头遍历列，通过属性、宽度以及距离左边框间距来判断是否是行合并
@@ -83,15 +92,13 @@ public class ReadWordTable {
             // 是否为合并单元格的中间行（包括结尾行）
             if (isContinueRow(testTable)) {
                 // 是被上一行单元格合并的单元格
-                if (getCellWidth(table, row, i) == standWidth
-                        && getLeftWidth(table, row, i) == standLeftWidth) {
+                if (getCellWidth(table, row, i) == cellWidth
+                        && getLeftWidth(table, row, i) == leftWidth) {
                     list.add(true);
                     // 被合并的单元格在生成html时需要忽略
                     addOmitCell(row, i);
-                    // 如果下一行仍有此列，则继续查找
-                    if (col < colsNum) {
-                        getRowspan(table, row, col, list);
-                    }
+                    // 去下一行继续查找
+                    getRowspan(table, row, cellWidth, leftWidth, list);
                     break;
                 }
             }
@@ -186,11 +193,7 @@ public class ReadWordTable {
                     tableToHtmlStr.append("<td");
                 }
 
-                // list 的长度表示当前单元格行合并的单元格数-1
-                List<Boolean> list = new ArrayList<>();
-                getRowspan(table, i, j, list);
-                int rowspan = list.size() + 1;
-                // System.out.println("第" + i + "行" + "第" + j + "列: " + rowspan);
+                int rowspan = getRowspan(table, i, j);
                 if (rowspan > 1) { // 合并的行
                     tableToHtmlStr.append(" rowspan='" + rowspan + "'>");
                 } else {
@@ -217,7 +220,7 @@ public class ReadWordTable {
     public static void main(String[] args) {
         ReadWordTable readWordTable = new ReadWordTable();
 
-        try (FileInputStream fileInputStream = new FileInputStream("table1.docx");
+        try (FileInputStream fileInputStream = new FileInputStream("E:\\下载\\table1.docx");
                 XWPFDocument document = new XWPFDocument(fileInputStream);) {
             List<XWPFTable> tables = document.getTables();
             for (XWPFTable table : tables) {
