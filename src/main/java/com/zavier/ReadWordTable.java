@@ -34,9 +34,9 @@ public class ReadWordTable {
     }
 
     /**
-     * 获取当前单元格的colspan属性
+     * 获取当前单元格的colspan（列合并）的列数
      * 
-     * @param tcPr
+     * @param tcPr 单元格属性
      * @return
      */
     public int getColspan(CTTcPr tcPr) {
@@ -52,35 +52,46 @@ public class ReadWordTable {
     }
 
     /**
-     * 获取当前单元格的rowspan属性
+     * 获取当前单元格的rowspan（行合并）的行数-1（因为没有包括其本身）
      * 
-     * @param table
-     * @param row
-     * @param col
-     * @param list
+     * @param table 表格
+     * @param row 行值
+     * @param col 列值
+     * @param list list中值的数量表示行合并单元格的数量-1
      */
     public void getRowspan(XWPFTable table, int row, int col, List<Boolean> list) {
 
         XWPFTableCell cell = table.getRow(row).getCell(col);
-        if (!isContinueRow(cell) && !isRestartRow(cell)) { // 正常单元格
+        // 正常独立单元格
+        if (!isContinueRow(cell) && !isRestartRow(cell)) {
             return;
         }
-        if (row + 1 >= table.getNumberOfRows()) { // 行数超界
+        // 已达到最后一行
+        if (row + 1 >= table.getNumberOfRows()) {
             return;
         }
+        // 当前单元格的宽度
         int standWidth = getCellWidth(table, row, col);
+        // 当前单元格距离左侧边框的距离
         int standLeftWidth = getLeftWidth(table, row, col);
 
         row = row + 1;
         int colsNum = table.getRow(row).getTableCells().size();
+        // 因为列合并单元格可能导致行合并的单元格并不在同一列，所以从头遍历列，通过属性、宽度以及距离左边框间距来判断是否是行合并
         for (int i = 0; i < colsNum; i++) {
             XWPFTableCell testTable = table.getRow(row).getCell(i);
-            if (isContinueRow(testTable)) { // 为合并单元格的中间行
+            // 是否为合并单元格的中间行（包括结尾行）
+            if (isContinueRow(testTable)) {
+                // 是被上一行单元格合并的单元格
                 if (getCellWidth(table, row, i) == standWidth
-                        && getLeftWidth(table, row, i) == standLeftWidth) { // 是目标单元格(即是上一行对应单元格的下一级单元格)
+                        && getLeftWidth(table, row, i) == standLeftWidth) {
                     list.add(true);
+                    // 被合并的单元格在生成html时需要忽略
                     addOmitCell(row, i);
-                    getRowspan(table, row, col, list);
+                    // 如果下一行仍有此列，则继续查找
+                    if (col < colsNum) {
+                        getRowspan(table, row, col, list);
+                    }
                     break;
                 }
             }
@@ -108,7 +119,7 @@ public class ReadWordTable {
     }
 
     /**
-     * 判断是否是合并行的中间行单元格
+     * 判断是否是合并行的中间行单元格（包括结尾的最后一行的单元格）
      * 
      * @param tableCell
      * @return
@@ -138,11 +149,10 @@ public class ReadWordTable {
     }
 
     /**
-     * 添加忽略的单元格(poi区分不出合并的行，故需要手动区分)
+     * 添加忽略的单元格(被行合并的单元格，生成HTML时需要忽略)
      * 
      * @param row
      * @param col
-     * @param rowspan
      */
     public void addOmitCell(int row, int col) {
         String omitCellStr = generateOmitCellStr(row, col);
@@ -167,6 +177,7 @@ public class ReadWordTable {
                     continue;
                 }
                 XWPFTableCell tableCell = table.getRow(i).getCell(j);
+                // 获取单元格的属性
                 CTTcPr tcPr = tableCell.getCTTc().getTcPr();
                 int colspan = getColspan(tcPr);
                 if (colspan > 1) { // 合并的列
@@ -175,6 +186,7 @@ public class ReadWordTable {
                     tableToHtmlStr.append("<td");
                 }
 
+                // list 的长度表示当前单元格行合并的单元格数-1
                 List<Boolean> list = new ArrayList<>();
                 getRowspan(table, i, j, list);
                 int rowspan = list.size() + 1;
@@ -198,14 +210,14 @@ public class ReadWordTable {
     }
 
     public void clearTableInfo() {
-        System.out.println(omitCellsList);
+        // System.out.println(omitCellsList);
         omitCellsList.clear();
     }
 
     public static void main(String[] args) {
         ReadWordTable readWordTable = new ReadWordTable();
 
-        try (FileInputStream fileInputStream = new FileInputStream("表格.docx");
+        try (FileInputStream fileInputStream = new FileInputStream("table1.docx");
                 XWPFDocument document = new XWPFDocument(fileInputStream);) {
             List<XWPFTable> tables = document.getTables();
             for (XWPFTable table : tables) {
