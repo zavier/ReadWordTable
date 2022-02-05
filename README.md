@@ -2,6 +2,8 @@
 
 使用poi解析word文档（.docx）中的表格内容及结构，并以html形式输出
 
+原理分析：https://www.cnblogs.com/zawier/p/6062596.html
+
 总结一下处理Word中表格的行列合并相关的api:
 
 获取单元格的属性
