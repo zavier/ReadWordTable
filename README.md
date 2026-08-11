@@ -1,3 +1,5 @@
+
+
 # ReadWordTable
 
 使用poi解析word文档（.docx）中的表格内容及结构，并以html形式输出
@@ -27,10 +29,5 @@ CTVMerge vMerge = tcPr.getVMerge();
 ```java
 CTDecimalNumber gridSpan = tcPr.getGridSpan();
 // 其他不是列合并的单元格，则：gridSpan == null
-// 如果是列合并的第一列单元格，则：gridSpan.getVal()可以获取到这列单元格所占的行数
+// 如果是列合并的第一列单元格，则：gridSpan.getVal()可以获取到这列单元格所占的列数
 ```
-
-
-
-
-
